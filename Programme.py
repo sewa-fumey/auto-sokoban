@@ -3,21 +3,21 @@ from collections import deque
 
 pygame.init()
 SIZE = 40
-screen = pygame.display.set_mode((720, 740))
+screen = pygame.display.set_mode((380, 400))
 pygame.display.set_caption("Sokoban BFS")
 
 # Niveau simple
 level = [
-    "########",
-    "#      #",
-    "#  $$  #",
-    "#  P # #",
-    "#   .  #",
-    "###  ###",
-    "#### ###",
-    "#      #",
-    "## .  ##",
-    "########",
+    "##########",
+    "##      ##",
+    "##  $$  ##",
+    "##  P # ##",
+    "##   .  ##",
+    "####  ####",
+    "##### ####",
+    "##      ##",
+    "### .  ###",
+    "##########",
 
 ]
 
