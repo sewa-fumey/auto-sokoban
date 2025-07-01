@@ -45,11 +45,26 @@ input_active = False
 
 # États du jeu
 MENU = "menu"
-NAME_INPUT = "name_input"  # NOUVEAU
+ALGORITHM_CHOICE = "algorithm_choice"  # NOUVEAU
+NAME_INPUT = "name_input"
 PLAYING = "playing"
 LEVEL_COMPLETE = "level_complete"
-GAME_OVER = "game_over"  # NOUVEAU
+GAME_OVER = "game_over"
 game_state = MENU
+
+# Variables pour le nom du joueur et algorithme
+player_name = ""
+input_active = False
+selected_algorithm = "BFS"  # NOUVEAU - par défaut BFS
+
+
+
+
+
+
+
+
+
 
 
 
@@ -205,10 +220,13 @@ level_complete_sound = generate_level_complete_sound()
 
 def save_score(name, level_reached, completed_all=False):
     """Sauvegarde le score du joueur"""
+    global selected_algorithm  # AJOUTER cette ligne
+    
     score_data = {
         'name': name,
         'level_reached': level_reached,
         'completed_all': completed_all,
+        'algorithm': selected_algorithm,  # NOUVEAU
         'date': datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     }
     
@@ -220,8 +238,9 @@ def save_score(name, level_reached, completed_all=False):
     try:
         with open(SCORES_FILE, 'w', encoding='utf-8') as f:
             for score in scores:
-                status = "VICTOIRE TOTALE" if score['completed_all'] else f"NIVEAU {score['level_reached']}"
-                f.write(f"{score['name']} - {status} - {score['date']}\n")
+                status = "VICTOIRE TOTALE" if score.get('completed_all', False) else f"NIVEAU {score.get('level_reached', 1)}"
+                algo = score.get('algorithm', 'BFS')  # Par défaut BFS pour les anciens scores
+                f.write(f"{score['name']} - {status} - {algo} - {score['date']}\n")
         print(f"Score sauvegardé pour {name}")
     except Exception as e:
         print(f"Erreur lors de la sauvegarde: {e}")
@@ -483,6 +502,82 @@ def bfs_solve(game):
     
     return []
 
+
+def dfs_solve(game, max_depth=30, max_states=10000):
+    """Résout le puzzle avec Depth-First Search optimisé"""
+    start_state = game.get_state()
+    visited = set()
+    states_explored = 0
+    
+
+import time  # Ajouter cet import en haut du fichier
+
+def dfs_solve(game, max_depth=25, timeout_seconds=5):
+    """Résout le puzzle avec DFS et timeout de sécurité"""
+    start_time = time.time()
+    start_state = game.get_state()
+    visited = set()
+    states_explored = 0
+    best_solution = None
+    
+    def dfs_recursive(state, path, depth):
+        nonlocal states_explored, best_solution
+        states_explored += 1
+        
+        # Vérifier le timeout
+        if time.time() - start_time > timeout_seconds:
+            return "TIMEOUT"
+        
+        # Limite de profondeur
+        if depth > max_depth:
+            return None
+            
+        # Restaurer l'état
+        game.player, boxes = state
+        game.boxes = set(boxes)
+        
+        # Solution trouvée
+        if game.boxes == game.goals:
+            print(f"DFS: Solution trouvée en {len(path)} mouvements")
+            return path
+        
+        # Éviter les cycles
+        if state in visited:
+            return None
+        
+        visited.add(state)
+        
+        # Essayer tous les mouvements
+        for dx, dy in [(0, -1), (0, 1), (-1, 0), (1, 0)]:
+            old_player, old_boxes = game.player, game.boxes.copy()
+            
+            if game.move_silent(dx, dy):
+                new_state = game.get_state()
+                if new_state not in visited:
+                    result = dfs_recursive(new_state, path + [(dx, dy)], depth + 1)
+                    if result == "TIMEOUT":
+                        return "TIMEOUT"
+                    elif result is not None:
+                        return result
+            
+            game.player, game.boxes = old_player, old_boxes
+        
+        visited.remove(state)
+        return None
+    
+    print(f"DFS: Recherche avec timeout de {timeout_seconds}s...")
+    result = dfs_recursive(start_state, [], 0)
+    
+    if result == "TIMEOUT":
+        print(f"DFS: Timeout après {timeout_seconds}s - Fallback vers BFS")
+        return bfs_solve(game)
+    elif result is None:
+        print(f"DFS: Aucune solution trouvée - Fallback vers BFS")
+        return bfs_solve(game)
+    
+    return result
+
+
 # Ajouter une version silencieuse du mouvement pour l'IA
 def move_silent(self, dx, dy):
     px, py = self.player
@@ -574,10 +669,87 @@ def draw_level_complete():
         menu_button_centered = Button(WINDOW_WIDTH // 2 - 80, 320, 160, 40, "MENU PRINCIPAL", RED, WHITE, 24)
         menu_button_centered.draw(screen)
 
+
+
+def draw_algorithm_choice():
+    """Dessine l'écran de choix d'algorithme"""
+    screen.fill(DARK_GRAY)
+    
+    # Titre
+    title_font = pygame.font.Font(None, 48)
+    title_text = title_font.render("CHOISIR L'ALGORITHME", True, WHITE)
+    title_rect = title_text.get_rect(center=(WINDOW_WIDTH // 2, 150))
+    screen.blit(title_text, title_rect)
+    
+    # Description des algorithmes
+    desc_font = pygame.font.Font(None, 24)
+    
+    # BFS
+    bfs_color = GOLD if selected_algorithm == "BFS" else WHITE
+    bfs_text = desc_font.render("BFS (Breadth-First Search)", True, bfs_color)
+    bfs_rect = bfs_text.get_rect(center=(WINDOW_WIDTH // 2, 220))
+    screen.blit(bfs_text, bfs_rect)
+    
+    bfs_desc = desc_font.render("• Solution optimale garantie", True, GRAY)
+    bfs_desc_rect = bfs_desc.get_rect(center=(WINDOW_WIDTH // 2, 245))
+    screen.blit(bfs_desc, bfs_desc_rect)
+    
+    bfs_desc2 = desc_font.render("• Explore niveau par niveau", True, GRAY)
+    bfs_desc2_rect = bfs_desc2.get_rect(center=(WINDOW_WIDTH // 2, 265))
+    screen.blit(bfs_desc2, bfs_desc2_rect)
+    
+    # DFS
+    dfs_color = GOLD if selected_algorithm == "DFS" else WHITE
+    dfs_text = desc_font.render("DFS (Depth-First Search)", True, dfs_color)
+    dfs_rect = dfs_text.get_rect(center=(WINDOW_WIDTH // 2, 320))
+    screen.blit(dfs_text, dfs_rect)
+    
+    dfs_desc = desc_font.render("• Plus rapide à trouver une solution", True, GRAY)
+    dfs_desc_rect = dfs_desc.get_rect(center=(WINDOW_WIDTH // 2, 345))
+    screen.blit(dfs_desc, dfs_desc_rect)
+    
+    dfs_desc2 = desc_font.render("• Solution pas forcément optimale", True, GRAY)
+    dfs_desc2_rect = dfs_desc2.get_rect(center=(WINDOW_WIDTH // 2, 365))
+    screen.blit(dfs_desc2, dfs_desc2_rect)
+    
+    # Instructions
+    instr_font = pygame.font.Font(None, 28)
+    instr_text = instr_font.render("↑↓ pour changer, ENTRÉE pour confirmer", True, WHITE)
+    instr_rect = instr_text.get_rect(center=(WINDOW_WIDTH // 2, 450))
+    screen.blit(instr_text, instr_rect)
+    
+    # Indicateur de sélection
+    if selected_algorithm == "BFS":
+        pygame.draw.rect(screen, GOLD, (WINDOW_WIDTH // 2 - 200, 210, 400, 70), 3)
+    else:
+        pygame.draw.rect(screen, GOLD, (WINDOW_WIDTH // 2 - 200, 310, 400, 70), 3)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 def draw_game():
     screen.fill((50, 50, 50))
     
     offset_x, offset_y = get_level_offset()
+
+    # Afficher informations en haut
+    info_font = pygame.font.Font(None, 24)
+    level_text = info_font.render(f"Niveau {current_level + 1}/{len(levels)}", True, WHITE)
+    screen.blit(level_text, (10, 10))
+
+    # NOUVEAU - Afficher l'algorithme utilisé
+    algo_text = info_font.render(f"Algorithme: {selected_algorithm}", True, GOLD)
+    screen.blit(algo_text, (200, 10))
     
     # Dessiner niveau
     for y, row in enumerate(game.level_data):
@@ -647,24 +819,42 @@ while True:
         
         if game_state == MENU:
             if enter_button.handle_event(event):
-                game_state = NAME_INPUT
-                input_active = True
+                game_state = ALGORITHM_CHOICE  # MODIFIÉ - aller au choix d'algorithme
+        
+        elif game_state == ALGORITHM_CHOICE:  # NOUVEAU
+            if event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_UP or event.key == pygame.K_DOWN:
+                    selected_algorithm = "DFS" if selected_algorithm == "BFS" else "BFS"
+                elif event.key == pygame.K_RETURN:
+                    game_state = NAME_INPUT
+                    input_active = True
+                elif event.key == pygame.K_ESCAPE:
+                    game_state = MENU
         
         elif game_state == NAME_INPUT:
             if event.type == pygame.KEYDOWN:
                 if event.key == pygame.K_RETURN and player_name.strip():
                     game_state = PLAYING
                     game.load_level(current_level)
-                    print(f"Résolution du niveau {current_level + 1}...")
-                    solution = bfs_solve(game)
+                    
+                    # MODIFIÉ - Choisir l'algorithme selon la sélection
+                    print(f"Résolution du niveau {current_level + 1} avec {selected_algorithm}...")
+                    if selected_algorithm == "BFS":
+                        solution = bfs_solve(game)
+                    else:  # DFS
+                        solution = dfs_solve(game)
+                    
                     game.reset()
                     move_index = 0
-                    print(f"Solution trouvée en {len(solution)} mouvements!")
+                    if solution:
+                        print(f"Solution trouvée en {len(solution)} mouvements avec {selected_algorithm}!")
+                    else:
+                        print(f"Aucune solution trouvée avec {selected_algorithm} (limite de profondeur atteinte)")
                     print(f"Joueur: {player_name}")
                 elif event.key == pygame.K_BACKSPACE:
                     player_name = player_name[:-1]
                 elif event.key == pygame.K_ESCAPE:
-                    game_state = MENU
+                    game_state = ALGORITHM_CHOICE  # MODIFIÉ - retour au choix d'algorithme
                     player_name = ""
                     input_active = False
                 else:
@@ -673,7 +863,6 @@ while True:
         
         elif game_state == PLAYING:
             if exit_button.handle_event(event):
-                # Sauvegarder comme défaite avant de quitter
                 save_score(player_name, current_level + 1, False)
                 game_state = GAME_OVER
             
@@ -711,17 +900,22 @@ while True:
                     print(f"Passage au niveau {current_level + 1}")
                     game_state = PLAYING
                     game.load_level(current_level)
-                    solution = bfs_solve(game)
+                    
+                    # MODIFIÉ - Utiliser l'algorithme sélectionné
+                    if selected_algorithm == "BFS":
+                        solution = bfs_solve(game)
+                    else:
+                        solution = dfs_solve(game)
+                    
                     game.reset()
                     move_index = 0
-                    print(f"Solution trouvée en {len(solution)} mouvements!")
+                    print(f"Solution trouvée en {len(solution)} mouvements avec {selected_algorithm}!")
                 
                 menu_click_area = pygame.Rect(WINDOW_WIDTH // 2 - 80, 390, 160, 40)
                 if event.type == pygame.MOUSEBUTTONDOWN and menu_click_area.collidepoint(event.pos):
                     save_score(player_name, current_level + 1, False)
                     game_state = GAME_OVER
             else:
-                # Victoire totale
                 save_score(player_name, len(levels), True)
                 menu_click_area = pygame.Rect(WINDOW_WIDTH // 2 - 80, 320, 160, 40)
                 if event.type == pygame.MOUSEBUTTONDOWN and menu_click_area.collidepoint(event.pos):
@@ -730,9 +924,9 @@ while True:
         elif game_state == GAME_OVER:
             restart_click_area = pygame.Rect(WINDOW_WIDTH // 2 - 100, 350, 200, 50)
             if event.type == pygame.MOUSEBUTTONDOWN and restart_click_area.collidepoint(event.pos):
-                # Réinitialiser pour une nouvelle partie
                 current_level = 0
                 player_name = ""
+                selected_algorithm = "BFS"  # NOUVEAU - réinitialiser
                 game_state = MENU
                 move_index = 0
                 solution = []
@@ -740,6 +934,8 @@ while True:
     # Dessiner selon l'état du jeu
     if game_state == MENU:
         draw_menu()
+    elif game_state == ALGORITHM_CHOICE:  # NOUVEAU
+        draw_algorithm_choice()
     elif game_state == NAME_INPUT:
         draw_name_input()
     elif game_state == PLAYING:
