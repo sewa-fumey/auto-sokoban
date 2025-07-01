@@ -6,8 +6,25 @@ pygame.init()
 pygame.mixer.init(frequency=22050, size=-16, channels=2, buffer=512)
 
 SIZE = 40
-screen = pygame.display.set_mode((380, 400))
+WINDOW_WIDTH = 380
+WINDOW_HEIGHT = 500  # Agrandi pour les boutons
+screen = pygame.display.set_mode((WINDOW_WIDTH, WINDOW_HEIGHT))
 pygame.display.set_caption("Sokoban BFS")
+
+# États du jeu
+MENU = "menu"
+PLAYING = "playing"
+game_state = MENU
+
+# Couleurs
+WHITE = (255, 255, 255)
+BLACK = (0, 0, 0)
+GRAY = (128, 128, 128)
+DARK_GRAY = (64, 64, 64)
+GREEN = (0, 200, 0)
+DARK_GREEN = (0, 150, 0)
+RED = (200, 0, 0)
+DARK_RED = (150, 0, 0)
 
 # Fonction pour générer des sons synthétiques
 def generate_push_sound():
@@ -94,6 +111,50 @@ level = [
     "### .  ###",
     "##########",
 ]
+
+class Button:
+    def __init__(self, x, y, width, height, text, color, text_color, font_size=36):
+        self.rect = pygame.Rect(x, y, width, height)
+        self.text = text
+        self.color = color
+        self.text_color = text_color
+        self.font = pygame.font.Font(None, font_size)
+        self.hover_color = (min(255, color[0] + 30), min(255, color[1] + 30), min(255, color[2] + 30))
+        self.pressed_color = (max(0, color[0] - 30), max(0, color[1] - 30), max(0, color[2] - 30))
+        self.is_pressed = False
+        self.is_hovered = False
+    
+    def handle_event(self, event):
+        if event.type == pygame.MOUSEBUTTONDOWN:
+            if self.rect.collidepoint(event.pos):
+                self.is_pressed = True
+                return True
+        elif event.type == pygame.MOUSEBUTTONUP:
+            if self.is_pressed:
+                self.is_pressed = False
+                if self.rect.collidepoint(event.pos):
+                    return True
+        elif event.type == pygame.MOUSEMOTION:
+            self.is_hovered = self.rect.collidepoint(event.pos)
+        return False
+    
+    def draw(self, screen):
+        # Choisir la couleur selon l'état
+        if self.is_pressed:
+            color = self.pressed_color
+        elif self.is_hovered:
+            color = self.hover_color
+        else:
+            color = self.color
+        
+        # Dessiner le bouton avec bordure
+        pygame.draw.rect(screen, color, self.rect)
+        pygame.draw.rect(screen, BLACK, self.rect, 3)
+        
+        # Dessiner le texte centré
+        text_surface = self.font.render(self.text, True, self.text_color)
+        text_rect = text_surface.get_rect(center=self.rect.center)
+        screen.blit(text_surface, text_rect)
 
 class Game:
     def __init__(self):
@@ -202,30 +263,25 @@ def move_silent(self, dx, dy):
 # Ajouter la méthode silencieuse à la classe
 Game.move_silent = move_silent
 
-game = Game()
-solution = bfs_solve(game)
-game.reset()
-
-move_index = 0
-clock = pygame.time.Clock()
-
-print(f"Solution trouvée en {len(solution)} mouvements!")
-print("Appuyez sur ESPACE pour voir la solution étape par étape")
-
-while True:
-    for event in pygame.event.get():
-        if event.type == pygame.QUIT:
-            pygame.quit()
-            exit()
-        if event.type == pygame.KEYDOWN:
-            if event.key == pygame.K_SPACE and move_index < len(solution):
-                dx, dy = solution[move_index]
-                game.move(dx, dy)
-                move_index += 1
-            elif event.key == pygame.K_r:  # Reset avec R
-                game.reset()
-                move_index = 0
+def draw_menu():
+    screen.fill(DARK_GRAY)
     
+    # Titre SOKOBAN
+    title_font = pygame.font.Font(None, 72)
+    title_text = title_font.render("SOKOBAN", True, WHITE)
+    title_rect = title_text.get_rect(center=(WINDOW_WIDTH // 2, 150))
+    screen.blit(title_text, title_rect)
+    
+    # Sous-titre
+    subtitle_font = pygame.font.Font(None, 24)
+    subtitle_text = subtitle_font.render("Résolution automatique par BFS", True, GRAY)
+    subtitle_rect = subtitle_text.get_rect(center=(WINDOW_WIDTH // 2, 200))
+    screen.blit(subtitle_text, subtitle_rect)
+    
+    # Dessiner le bouton d'entrée
+    enter_button.draw(screen)
+
+def draw_game():
     screen.fill((50, 50, 50))
     
     # Dessiner niveau
@@ -264,6 +320,67 @@ while True:
         font = pygame.font.Font(None, 24)
         text = font.render("Solution terminée! R pour recommencer", True, (255, 255, 255))
         screen.blit(text, (10, 10))
+    
+    # Dessiner le bouton de sortie
+    exit_button.draw(screen)
+
+# Créer les boutons
+enter_button = Button(WINDOW_WIDTH // 2 - 100, 280, 200, 60, "ENTRER", GREEN, WHITE, 36)
+exit_button = Button(WINDOW_WIDTH // 2 - 60, 420, 120, 40, "SORTIE", RED, WHITE, 24)
+
+# Initialiser le jeu (mais ne pas encore résoudre)
+game = Game()
+solution = []
+move_index = 0
+clock = pygame.time.Clock()
+
+print("Bienvenue dans Sokoban!")
+print("Cliquez sur ENTRER pour commencer")
+
+while True:
+    for event in pygame.event.get():
+        if event.type == pygame.QUIT:
+            pygame.quit()
+            exit()
+        
+        if game_state == MENU:
+            if enter_button.handle_event(event):
+                # Passer au jeu et résoudre le puzzle
+                game_state = PLAYING
+                print("Résolution du puzzle...")
+                solution = bfs_solve(game)
+                game.reset()
+                print(f"Solution trouvée en {len(solution)} mouvements!")
+                print("Appuyez sur ESPACE pour voir la solution étape par étape")
+        
+        elif game_state == PLAYING:
+            if exit_button.handle_event(event):
+                # Retourner au menu
+                game_state = MENU
+                game.reset()
+                move_index = 0
+                solution = []
+                print("Retour au menu principal")
+            
+            if event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_SPACE and move_index < len(solution):
+                    dx, dy = solution[move_index]
+                    game.move(dx, dy)
+                    move_index += 1
+                elif event.key == pygame.K_r:  # Reset avec R
+                    game.reset()
+                    move_index = 0
+                elif event.key == pygame.K_ESCAPE:  # Échap pour retourner au menu
+                    game_state = MENU
+                    game.reset()
+                    move_index = 0
+                    solution = []
+    
+    # Dessiner selon l'état du jeu
+    if game_state == MENU:
+        draw_menu()
+    elif game_state == PLAYING:
+        draw_game()
     
     pygame.display.flip()
     clock.tick(60)
