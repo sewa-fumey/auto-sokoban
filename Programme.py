@@ -6,14 +6,15 @@ pygame.init()
 pygame.mixer.init(frequency=22050, size=-16, channels=2, buffer=512)
 
 SIZE = 40
-WINDOW_WIDTH = 380
-WINDOW_HEIGHT = 500  # Agrandi pour les boutons
+WINDOW_WIDTH = 480  # Agrandi pour des niveaux plus larges
+WINDOW_HEIGHT = 580  # Agrandi pour des niveaux plus hauts
 screen = pygame.display.set_mode((WINDOW_WIDTH, WINDOW_HEIGHT))
 pygame.display.set_caption("Sokoban BFS")
 
 # États du jeu
 MENU = "menu"
 PLAYING = "playing"
+LEVEL_COMPLETE = "level_complete"
 game_state = MENU
 
 # Couleurs
@@ -25,6 +26,50 @@ GREEN = (0, 200, 0)
 DARK_GREEN = (0, 150, 0)
 RED = (200, 0, 0)
 DARK_RED = (150, 0, 0)
+BLUE = (0, 100, 200)
+GOLD = (255, 215, 0)
+
+# Niveaux progressifs
+levels = [
+    # Niveau 1 - Très facile
+    [
+        "########",
+        "#      #",
+        "# $  . #",
+        "#   P  #",
+        "#      #",
+        "########",
+    ],
+    
+    # Niveau 2 - Facile
+    [
+        "##########",
+        "##      ##",
+        "## $    ##",
+        "##     P##",
+        "##      ##",
+        "####  ####",
+        "##### ####",
+        "##      ##",
+        "### .  ###",
+        "##########",
+    ],
+    
+    # Niveau 3 - Moyen
+    [
+        "############",
+        "#     #    #",
+        "# $   #  . #",
+        "## #  #  # #",
+        "#     P    #",
+        "#   $    . #",
+        "############",
+    ],
+    
+
+]
+
+current_level = 0
 
 # Fonction pour générer des sons synthétiques
 def generate_push_sound():
@@ -94,23 +139,44 @@ def generate_victory_music():
     sound = pygame.sndarray.make_sound(sound_array)
     return sound
 
+def generate_level_complete_sound():
+    """Génère un son de fin de niveau plus court"""
+    duration = 1.5
+    sample_rate = 22050
+    frames = int(duration * sample_rate)
+    
+    # Mélodie courte et positive
+    notes = [392.00, 523.25, 659.25]  # G-C-E
+    note_duration = duration / len(notes)
+    note_frames = int(note_duration * sample_rate)
+    
+    arr = np.zeros((frames, 2))
+    
+    for i, freq in enumerate(notes):
+        start = i * note_frames
+        end = min(start + note_frames, frames)
+        note_length = end - start
+        
+        if note_length > 0:
+            t = np.linspace(0, note_duration, note_length)
+            envelope = np.exp(-t * 1.5) * (1 - np.exp(-t * 8))
+            
+            wave = (np.sin(2 * np.pi * freq * t) * 0.6 +
+                   np.sin(2 * np.pi * freq * 2 * t) * 0.3) * envelope
+            
+            arr[start:end, 0] += wave
+            arr[start:end, 1] += wave
+    
+    arr = np.clip(arr, -1, 1)
+    sound_array = (arr * 20000).astype(np.int16)
+    
+    sound = pygame.sndarray.make_sound(sound_array)
+    return sound
+
 # Générer les sons
 push_sound = generate_push_sound()
 victory_music = generate_victory_music()
-
-# Niveau simple
-level = [
-    "##########",
-    "##      ##",
-    "## $    ##",
-    "##     P##",
-    "##      ##",
-    "####  ####",
-    "##### ####",
-    "##      ##",
-    "### .  ###",
-    "##########",
-]
+level_complete_sound = generate_level_complete_sound()
 
 class Button:
     def __init__(self, x, y, width, height, text, color, text_color, font_size=36):
@@ -158,14 +224,20 @@ class Button:
 
 class Game:
     def __init__(self):
+        self.level_data = levels[current_level]
         self.reset()
         self.victory_played = False
+    
+    def load_level(self, level_index):
+        if 0 <= level_index < len(levels):
+            self.level_data = levels[level_index]
+            self.reset()
     
     def reset(self):
         self.boxes = set()
         self.goals = set()
         self.victory_played = False
-        for y, row in enumerate(level):
+        for y, row in enumerate(self.level_data):
             for x, cell in enumerate(row):
                 if cell == 'P':
                     self.player = (x, y)
@@ -179,7 +251,7 @@ class Game:
         nx, ny = px + dx, py + dy
         
         # Vérifier mur
-        if level[ny][nx] == '#':
+        if ny < 0 or ny >= len(self.level_data) or nx < 0 or nx >= len(self.level_data[ny]) or self.level_data[ny][nx] == '#':
             return False
         
         box_pushed = False
@@ -187,7 +259,9 @@ class Game:
         # Vérifier boîte
         if (nx, ny) in self.boxes:
             bx, by = nx + dx, ny + dy
-            if level[by][bx] == '#' or (bx, by) in self.boxes:
+            if (by < 0 or by >= len(self.level_data) or 
+                bx < 0 or bx >= len(self.level_data[by]) or 
+                self.level_data[by][bx] == '#' or (bx, by) in self.boxes):
                 return False
             self.boxes.remove((nx, ny))
             self.boxes.add((bx, by))
@@ -203,9 +277,12 @@ class Game:
     
     def is_solved(self):
         solved = self.boxes == self.goals
-        # Jouer la musique de victoire une seule fois
+        # Jouer la musique appropriée une seule fois
         if solved and not self.victory_played:
-            victory_music.play()
+            if current_level == len(levels) - 1:  # Dernier niveau
+                victory_music.play()
+            else:
+                level_complete_sound.play()
             self.victory_played = True
         return solved
     
@@ -247,12 +324,16 @@ def move_silent(self, dx, dy):
     px, py = self.player
     nx, ny = px + dx, py + dy
     
-    if level[ny][nx] == '#':
+    if (ny < 0 or ny >= len(self.level_data) or 
+        nx < 0 or nx >= len(self.level_data[ny]) or 
+        self.level_data[ny][nx] == '#'):
         return False
     
     if (nx, ny) in self.boxes:
         bx, by = nx + dx, ny + dy
-        if level[by][bx] == '#' or (bx, by) in self.boxes:
+        if (by < 0 or by >= len(self.level_data) or 
+            bx < 0 or bx >= len(self.level_data[by]) or 
+            self.level_data[by][bx] == '#' or (bx, by) in self.boxes):
             return False
         self.boxes.remove((nx, ny))
         self.boxes.add((bx, by))
@@ -262,6 +343,14 @@ def move_silent(self, dx, dy):
 
 # Ajouter la méthode silencieuse à la classe
 Game.move_silent = move_silent
+
+def get_level_offset():
+    """Calcule l'offset pour centrer le niveau"""
+    level_width = len(game.level_data[0]) * SIZE
+    level_height = len(game.level_data) * SIZE
+    offset_x = (WINDOW_WIDTH - level_width) // 2
+    offset_y = (WINDOW_HEIGHT - level_height - 80) // 2  # -80 pour laisser place aux boutons
+    return offset_x, offset_y
 
 def draw_menu():
     screen.fill(DARK_GRAY)
@@ -278,63 +367,99 @@ def draw_menu():
     subtitle_rect = subtitle_text.get_rect(center=(WINDOW_WIDTH // 2, 200))
     screen.blit(subtitle_text, subtitle_rect)
     
+    # Afficher le niveau actuel
+    level_font = pygame.font.Font(None, 36)
+    level_text = level_font.render(f"Niveau {current_level + 1}/{len(levels)}", True, GOLD)
+    level_rect = level_text.get_rect(center=(WINDOW_WIDTH // 2, 250))
+    screen.blit(level_text, level_rect)
+    
     # Dessiner le bouton d'entrée
     enter_button.draw(screen)
+
+def draw_level_complete():
+    screen.fill(DARK_GRAY)
+    
+    # Titre de félicitations
+    if current_level == len(levels) - 1:
+        title_text = "FÉLICITATIONS!"
+        subtitle_text = "Vous avez terminé tous les niveaux!"
+        button_text = "REJOUER"
+    else:
+        title_text = "NIVEAU TERMINÉ!"
+        subtitle_text = f"Niveau {current_level + 1} complété!"
+        button_text = "NIVEAU SUIVANT"
+    
+    title_font = pygame.font.Font(None, 48)
+    title_surface = title_font.render(title_text, True, GOLD)
+    title_rect = title_surface.get_rect(center=(WINDOW_WIDTH // 2, 200))
+    screen.blit(title_surface, title_rect)
+    
+    subtitle_font = pygame.font.Font(None, 32)
+    subtitle_surface = subtitle_font.render(subtitle_text, True, WHITE)
+    subtitle_rect = subtitle_surface.get_rect(center=(WINDOW_WIDTH // 2, 250))
+    screen.blit(subtitle_surface, subtitle_rect)
+    
+    # Dessiner les boutons
+    next_level_button.draw(screen)
+    menu_button.draw(screen)
 
 def draw_game():
     screen.fill((50, 50, 50))
     
+    offset_x, offset_y = get_level_offset()
+    
     # Dessiner niveau
-    for y, row in enumerate(level):
+    for y, row in enumerate(game.level_data):
         for x, cell in enumerate(row):
-            rect = pygame.Rect(x * SIZE, y * SIZE, SIZE, SIZE)
+            rect = pygame.Rect(x * SIZE + offset_x, y * SIZE + offset_y, SIZE, SIZE)
             if cell == '#':
                 pygame.draw.rect(screen, (100, 100, 100), rect)
     
     # Dessiner objectifs
     for x, y in game.goals:
-        pygame.draw.circle(screen, (0, 255, 0), (x * SIZE + SIZE//2, y * SIZE + SIZE//2), SIZE//4)
+        pygame.draw.circle(screen, (0, 255, 0), 
+                         (x * SIZE + SIZE//2 + offset_x, y * SIZE + SIZE//2 + offset_y), SIZE//4)
     
     # Dessiner boîtes
     for x, y in game.boxes:
         color = (255, 255, 0) if (x, y) in game.goals else (139, 69, 19)
-        pygame.draw.rect(screen, color, (x * SIZE + 5, y * SIZE + 5, SIZE - 10, SIZE - 10))
+        pygame.draw.rect(screen, color, 
+                        (x * SIZE + 5 + offset_x, y * SIZE + 5 + offset_y, SIZE - 10, SIZE - 10))
     
     # Dessiner joueur
     px, py = game.player
-    pygame.draw.circle(screen, (255, 0, 0), (px * SIZE + SIZE//2, py * SIZE + SIZE//2), SIZE//3)
+    pygame.draw.circle(screen, (255, 0, 0), 
+                      (px * SIZE + SIZE//2 + offset_x, py * SIZE + SIZE//2 + offset_y), SIZE//3)
     
-    # Afficher statut
-    if game.is_solved():
-        font = pygame.font.Font(None, 36)
-        text = font.render("GAGNE!", True, (255, 255, 255))
-        screen.blit(text, (100, 100))
-        font_small = pygame.font.Font(None, 24)
-        text_reset = font_small.render("Appuyez sur R pour recommencer", True, (200, 200, 200))
-        screen.blit(text_reset, (50, 140))
-    elif move_index < len(solution):
-        font = pygame.font.Font(None, 24)
-        text = font.render(f"ESPACE: {move_index}/{len(solution)}", True, (255, 255, 255))
-        screen.blit(text, (10, 10))
+    # Afficher informations en haut
+    info_font = pygame.font.Font(None, 24)
+    level_text = info_font.render(f"Niveau {current_level + 1}/{len(levels)}", True, WHITE)
+    screen.blit(level_text, (10, 10))
+    
+    if move_index < len(solution):
+        progress_text = info_font.render(f"ESPACE: {move_index}/{len(solution)}", True, WHITE)
+        screen.blit(progress_text, (10, 35))
     else:
-        font = pygame.font.Font(None, 24)
-        text = font.render("Solution terminée! R pour recommencer", True, (255, 255, 255))
-        screen.blit(text, (10, 10))
+        complete_text = info_font.render("Solution terminée! R pour recommencer", True, WHITE)
+        screen.blit(complete_text, (10, 35))
     
     # Dessiner le bouton de sortie
     exit_button.draw(screen)
 
 # Créer les boutons
-enter_button = Button(WINDOW_WIDTH // 2 - 100, 280, 200, 60, "ENTRER", GREEN, WHITE, 36)
-exit_button = Button(WINDOW_WIDTH // 2 - 60, 420, 120, 40, "SORTIE", RED, WHITE, 24)
+enter_button = Button(WINDOW_WIDTH // 2 - 100, 320, 200, 60, "ENTRER", GREEN, WHITE, 36)
+exit_button = Button(WINDOW_WIDTH // 2 - 60, 520, 120, 40, "MENU", RED, WHITE, 24)
+next_level_button = Button(WINDOW_WIDTH // 2 - 120, 320, 240, 50, "NIVEAU SUIVANT", BLUE, WHITE, 28)
+menu_button = Button(WINDOW_WIDTH // 2 - 80, 390, 160, 40, "MENU PRINCIPAL", RED, WHITE, 24)
 
-# Initialiser le jeu (mais ne pas encore résoudre)
+# Initialiser le jeu
 game = Game()
 solution = []
 move_index = 0
 clock = pygame.time.Clock()
 
 print("Bienvenue dans Sokoban!")
+print(f"5 niveaux disponibles - Niveau actuel: {current_level + 1}")
 print("Cliquez sur ENTRER pour commencer")
 
 while True:
@@ -347,40 +472,66 @@ while True:
             if enter_button.handle_event(event):
                 # Passer au jeu et résoudre le puzzle
                 game_state = PLAYING
-                print("Résolution du puzzle...")
+                game.load_level(current_level)
+                print(f"Résolution du niveau {current_level + 1}...")
                 solution = bfs_solve(game)
                 game.reset()
+                move_index = 0
                 print(f"Solution trouvée en {len(solution)} mouvements!")
                 print("Appuyez sur ESPACE pour voir la solution étape par étape")
         
         elif game_state == PLAYING:
             if exit_button.handle_event(event):
-                # Retourner au menu
                 game_state = MENU
-                game.reset()
                 move_index = 0
                 solution = []
-                print("Retour au menu principal")
             
             if event.type == pygame.KEYDOWN:
                 if event.key == pygame.K_SPACE and move_index < len(solution):
                     dx, dy = solution[move_index]
                     game.move(dx, dy)
                     move_index += 1
+                    
+                    # Vérifier si le niveau est terminé
+                    if game.is_solved():
+                        game_state = LEVEL_COMPLETE
+                        
                 elif event.key == pygame.K_r:  # Reset avec R
                     game.reset()
                     move_index = 0
                 elif event.key == pygame.K_ESCAPE:  # Échap pour retourner au menu
                     game_state = MENU
-                    game.reset()
                     move_index = 0
                     solution = []
+        
+        elif game_state == LEVEL_COMPLETE:
+            if next_level_button.handle_event(event):
+                if current_level < len(levels) - 1:
+                    current_level += 1
+                    print(f"Passage au niveau {current_level + 1}")
+                else:
+                    current_level = 0  # Recommencer depuis le début
+                    print("Retour au niveau 1")
+                
+                game_state = PLAYING
+                game.load_level(current_level)
+                solution = bfs_solve(game)
+                game.reset()
+                move_index = 0
+                print(f"Solution trouvée en {len(solution)} mouvements!")
+                
+            elif menu_button.handle_event(event):
+                game_state = MENU
+                move_index = 0
+                solution = []
     
     # Dessiner selon l'état du jeu
     if game_state == MENU:
         draw_menu()
     elif game_state == PLAYING:
         draw_game()
+    elif game_state == LEVEL_COMPLETE:
+        draw_level_complete()
     
     pygame.display.flip()
     clock.tick(60)
