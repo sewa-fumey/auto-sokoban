@@ -51,8 +51,8 @@ L’objectif est de **résoudre le puzzle en un minimum de coups**, grâce à :
 - Conception et structuration d’un jeu en Python
 - Gestion d’une interface graphique avec PyGame
 - Algorithmes de recherche dans un graphe
-- Sauvegarde et gestion de données avec une base SQL
-- Intégration audio et UI/UX
+- Sauvegarde en fichier txt
+
 
 ---
 
